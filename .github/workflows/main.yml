@@ -2,7 +2,7 @@ name: Daily 2 YouTube Shorts Automation
 
 on:
   schedule:
-    # रोज़ सुबह 9:00 बजे और शाम 6:00 बजे (IST) अपने आप चलेगा
+    # रोज़ सुबह 7:00 बजे और शाम 5:20 बजे (IST) अपने आप चलेगा
     - cron: '30 3 * * *'
     - cron: '30 12 * * *'
   workflow_dispatch: # जब चाहें बटन दबाकर भी चला सकते हैं
