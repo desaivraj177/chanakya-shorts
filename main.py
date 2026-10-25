@@ -1,57 +1,63 @@
-import os, json, subprocess
+import os, json, requests, subprocess
+import google.generativeai as genai
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
 
-print("=== SAFE AUTO-CORRECTION SCRIPT STARTED ===")
+print("=== STARTING YOUTUBE AUTOMATION UPLOAD ===")
 
-# 1. Auto-Correction for topics.txt (Agar file na mile ya khali ho, toh khud naya topic bana lega)
-try:
-    if os.path.exists("topics.txt"):
-        with open("topics.txt", "r", encoding="utf-8") as f:
-            lines = [line.strip() for line in f if line.strip()]
-    else:
-        lines = []
-except Exception as e:
-    print("Auto-correction warning (topics read):", e)
-    lines = []
+# 1. Read topic
+with open("topics.txt", "r", encoding="utf-8") as f:
+    lines = [line.strip() for line in f if line.strip()]
 
-# Agar list khali ho gayi, toh automation ko crash hone se bachane ke liye auto-correct karke default topic daal do
-if not lines:
-    current_topic = "चाणक्य नीति के गुप्त रहस्य"
-    remaining_lines = []
-    print("Auto-corrected: Created a fresh topic automatically.")
-else:
-    current_topic = lines[0]
-    remaining_lines = lines[1:]
+current_topic = lines[0] if lines else "चाणक्य नीति के अनमोल वचन"
+remaining_lines = lines[1:] if len(lines) > 1 else ["सफलता का रहस्य"]
+print("Current Topic:", current_topic)
 
-print("Processing Topic Safely:", current_topic)
+# 2. Generate video locally using FFmpeg
+print("Generating video file...")
+subprocess.run([
+    "ffmpeg", "-y", "-f", "lavfi", 
+    "-i", "color=c=black:s=1080x1920:d=10", 
+    "-t", "10", 
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", 
+    "final_short.mp4"
+], check=True)
 
-# 2. Glitch-Proof Video Generation (Agar FFmpeg me koi error aaye, toh code crash nahi hoga)
-video_created = False
-try:
-    print("Attempting to generate lightweight video...")
-    subprocess.run([
-        "ffmpeg", "-y", "-f", "lavfi", 
-        "-i", "color=c=black:s=1080x1920:d=5", 
-        "-t", "5", 
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", 
-        "final_short.mp4"
-    ], check=True)
-    video_created = True
-    print("Video generated successfully!")
-except Exception as e:
-    print("Glitch caught in video generation, applying auto-correction fallback:", e)
-    # Fallback: Agar upar wala fail ho, toh ek aur simple tarika try karo
-    try:
-        subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc", "-t", "1", "final_short.mp4"], check=True)
-        video_created = True
-    except:
-        pass
+# 3. Upload directly to YouTube Channel using the new Refresh Token
+print("Uploading to YouTube...")
+yt_token = os.environ.get("YT_REFRESH_TOKEN", "").strip()
+yt_cid = os.environ.get("YT_CLIENT_ID", "").strip()
+yt_csec = os.environ.get("YT_CLIENT_SECRET", "").strip()
 
-# 3. Safe Topics Update (topics.txt ko apne aap update karega taaki agla run aage badh sake)
-try:
-    with open("topics.txt", "w", encoding="utf-8") as f:
-        f.write("\n".join(remaining_lines))
-    print("topics.txt updated successfully. Next topic is ready for the next run.")
-except Exception as e:
-    print("Auto-correction warning (topics update):", e)
+creds = Credentials(
+    None, 
+    refresh_token=yt_token, 
+    token_uri="https://oauth2.googleapis.com/token", 
+    client_id=yt_cid, 
+    client_secret=yt_csec
+)
+youtube = build("youtube", "v3", credentials=creds)
 
-print("=== WORKFLOW COMPLETED SUCCESSFULLY (EXIT 0) ===")
+body = {
+    "snippet": {
+        "title": f"Chanakya Niti: {current_topic[:50]} #shorts", 
+        "description": "Motivational short by Chanakya Niti #shorts #chanakyaniti #motivation", 
+        "tags": ["shorts", "chanakyaniti"], 
+        "categoryId": "27"
+    },
+    "status": {
+        "privacyStatus": "public", 
+        "selfDeclaredMadeForKids": False
+    }
+}
+
+media = MediaFileUpload("final_short.mp4", chunksize=-1, resumable=True)
+response = youtube.videos().insert(part="snippet,status", body=body, media_body=media).execute()
+print("SUCCESS! Video successfully uploaded, YouTube Video ID:", response.get("id"))
+
+# 4. Clean and update topics.txt
+with open("topics.txt", "w", encoding="utf-8") as f:
+    f.write("\n".join(remaining_lines))
+
+print("=== WORKFLOW COMPLETED SUCCESSFULLY ===")
