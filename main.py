@@ -5,13 +5,11 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-# 1. Check Secrets
 required_keys = ["GEMINI_API_KEY", "YT_CLIENT_ID", "YT_CLIENT_SECRET", "YT_REFRESH_TOKEN"]
 for k in required_keys:
     if not os.environ.get(k):
         raise ValueError(f"ERROR: GitHub Secrets mein '{k}' nahi mila!")
 
-# 2. Read Topic
 with open("topics.txt", "r", encoding="utf-8") as f:
     lines = [line.strip() for line in f if line.strip()]
 
@@ -23,7 +21,6 @@ current_topic = lines[0]
 remaining_lines = lines[1:]
 print("Current Topic:", current_topic)
 
-# 3. Gemini AI Call with Safe Fallback
 genai.configure(api_key=os.environ["GEMINI_API_KEY"].strip())
 
 prompt = f"""
@@ -59,12 +56,13 @@ Return ONLY valid JSON in this exact format (no markdown, no backticks, start wi
 """
 
 response_text = ""
-for model_name in ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]:
+for model_name in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.5-pro", "gemini-1.5-flash"]:
     try:
         model = genai.GenerativeModel(model_name)
         res = model.generate_content(prompt)
         if res and res.text:
             response_text = res.text.strip()
+            print("Successfully used model:", model_name)
             break
     except Exception as e:
         print(f"Model {model_name} error:", e)
@@ -85,7 +83,6 @@ def format_srt_time(seconds):
     msecs = int((seconds - int(seconds)) * 1000)
     return f"{hrs:02d}:{mins:02d}:{secs:02d},{msecs:03d}"
 
-# 4. Generate Audio & Video Clips
 for i, scene in enumerate(data["scenes"]):
     voice_file = f"voice_{i}.mp3"
     sub_file = f"sub_{i}.srt"
@@ -138,7 +135,6 @@ with open("concat.txt", "w") as f:
 
 subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "concat.txt", "-c", "copy", "final_short.mp4"], check=True)
 
-# 5. YouTube Upload
 creds = Credentials(
     None,
     refresh_token=os.environ["YT_REFRESH_TOKEN"].strip(),
@@ -161,7 +157,6 @@ body = {
 media = MediaFileUpload("final_short.mp4", chunksize=-1, resumable=True)
 youtube.videos().insert(part="snippet,status", body=body, media_body=media).execute()
 
-# 6. Update Topics List
 with open("topics.txt", "w", encoding="utf-8") as f:
     f.write("\n".join(remaining_lines))
 
