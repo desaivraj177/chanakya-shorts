@@ -5,11 +5,13 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
+# 1. Check Secrets
 required_keys = ["GEMINI_API_KEY", "YT_CLIENT_ID", "YT_CLIENT_SECRET", "YT_REFRESH_TOKEN"]
 for k in required_keys:
     if not os.environ.get(k):
         raise ValueError(f"ERROR: GitHub Secrets mein '{k}' nahi mila!")
 
+# 2. Read Topic
 with open("topics.txt", "r", encoding="utf-8") as f:
     lines = [line.strip() for line in f if line.strip()]
 
@@ -19,57 +21,61 @@ if not lines:
 
 current_topic = lines[0]
 remaining_lines = lines[1:]
+print("Current Topic:", current_topic)
 
+# 3. Gemini AI Call with Safe Fallback
 genai.configure(api_key=os.environ["GEMINI_API_KEY"].strip())
 
 prompt = f"""
 Topic: {current_topic} (Chanakya Niti Dark Psychology)
 Create a viral 40-second Hindi YouTube Short script divided into 5 scenes.
-Return ONLY valid JSON in this exact format (no markdown, no backticks):
+Return ONLY valid JSON in this exact format (no markdown, no backticks, start with {{ and end with }}):
 {{
   "title": "Chanakya Niti: Kadwa Sach! #shorts #chanakyaniti",
   "description": "Chanakya Niti lesson in Hindi #shorts #motivation #darkpsychology",
   "scenes": [
     {{
-      "text": "Scene 1 short suspenseful Hindi line in Devanagari (max 15 words)",
-      "image_prompt": "Ancient Indian philosopher Chanakya in dark mysterious palace, 3D animated Pixar style, dramatic lighting, vertical 9:16"
+      "text": "असंभव को संभव बनाने का चाणक्य का यह नियम जान लो",
+      "image_prompt": "Ancient Indian philosopher Chanakya in dark mysterious palace, 3D animated Pixar style, vertical 9:16"
     }},
     {{
-      "text": "Scene 2 Hindi line in Devanagari",
+      "text": "मूर्ख व्यक्ति से कभी बहस मत करो क्योंकि समय बर्बाद होता है",
       "image_prompt": "3D animated Pixar style scene matching line 2, dark moody lighting, vertical 9:16"
     }},
     {{
-      "text": "Scene 3 Hindi line in Devanagari",
+      "text": "अपना राज़ कभी किसी को मत बताओ वरना पछताओगे",
       "image_prompt": "3D animated Pixar style scene matching line 3, dramatic shadows, vertical 9:16"
     }},
     {{
-      "text": "Scene 4 Hindi line in Devanagari",
+      "text": "बुरा वक्त इंसान को असली और झूठे लोगों की पहचान कराता है",
       "image_prompt": "3D animated Pixar style scene matching line 4, glowing eyes, intense, vertical 9:16"
     }},
     {{
-      "text": "Scene 5 final powerful twist line in Hindi",
+      "text": "सफलता पाने के लिए चुपचाप मेहनत करो और शोर मत मचाओ",
       "image_prompt": "3D animated Pixar style Chanakya smiling mysteriously in shadows, epic lighting, vertical 9:16"
     }}
   ]
 }}
 """
 
-response = None
-for model_name in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-pro"]:
+response_text = ""
+for model_name in ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]:
     try:
         model = genai.GenerativeModel(model_name)
-        response = model.generate_content(prompt)
-        if response and response.text:
+        res = model.generate_content(prompt)
+        if res and res.text:
+            response_text = res.text.strip()
             break
     except Exception as e:
-        pass
+        print(f"Model {model_name} error:", e)
 
-clean_json = response.text.strip()
-if "```" in clean_json:
-    clean_json = clean_json.split("```")[1].replace("json", "", 1).strip()
+if not response_text:
+    raise Exception("Gemini API se koi response nahi mila. Please check API Key.")
 
-data = json.loads(clean_json)
+if "```" in response_text:
+    response_text = response_text.split("```")[1].replace("json", "", 1).strip()
 
+data = json.loads(response_text)
 clip_files = []
 
 def format_srt_time(seconds):
@@ -79,6 +85,7 @@ def format_srt_time(seconds):
     msecs = int((seconds - int(seconds)) * 1000)
     return f"{hrs:02d}:{mins:02d}:{secs:02d},{msecs:03d}"
 
+# 4. Generate Audio & Video Clips
 for i, scene in enumerate(data["scenes"]):
     voice_file = f"voice_{i}.mp3"
     sub_file = f"sub_{i}.srt"
@@ -131,6 +138,7 @@ with open("concat.txt", "w") as f:
 
 subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "concat.txt", "-c", "copy", "final_short.mp4"], check=True)
 
+# 5. YouTube Upload
 creds = Credentials(
     None,
     refresh_token=os.environ["YT_REFRESH_TOKEN"].strip(),
@@ -153,6 +161,7 @@ body = {
 media = MediaFileUpload("final_short.mp4", chunksize=-1, resumable=True)
 youtube.videos().insert(part="snippet,status", body=body, media_body=media).execute()
 
+# 6. Update Topics List
 with open("topics.txt", "w", encoding="utf-8") as f:
     f.write("\n".join(remaining_lines))
 
